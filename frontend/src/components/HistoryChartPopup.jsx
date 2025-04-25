@@ -146,14 +146,21 @@ const HistoryChartPopup = ({ stock, isOpen, onClose }) => {
   };
 
   // Helper function to infer the time unit based on selected period
+
   function inferTimeUnit(period) {
-      switch(period) {
-          case '1d': return 'minute';
-          case '5d': return 'hour';
-          case '1mo': return 'day';
-          default: return 'day'; // Default to day for longer periods
-      }
-  }
+    switch(period) {
+        case '1d': return 'hour';
+        // --- CHANGE THIS LINE ---
+        case '5d': return 'day'; // Use 'day' unit for 5-day view axis labels
+        // --- END CHANGE ---
+        case '1mo': return 'day';
+        case '6mo': return 'day'; // Or 'week' might be suitable too
+        case '1y': return 'month'; // Month seems appropriate for 1 year
+        case '5y': return 'year'; // Year for 5 years
+        case 'max': return 'year'; // Year for max
+        default: return 'day'; // Default fallback
+    }
+}
 
 
   return (
