@@ -2,7 +2,7 @@
 from kiteconnect import KiteConnect
 from kiteconnect.exceptions import TokenException, InputException
 from fastapi import HTTPException # Import HTTPException
-from ..core import config
+from ..core import config # Import your config module
 import logging
 import asyncio
 import threading # For thread-safe access if needed, though less critical for single user

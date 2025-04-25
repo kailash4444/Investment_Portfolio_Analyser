@@ -1,20 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-// Import the function to fetch portfolio data from your API service file
+// Import API functions
 import { fetchPortfolio } from '../services/api';
-import HistoryChartPopup from '../components/HistoryChartPopup'; // Import the modal component
+// Import Modal components
+import HistoryChartPopup from '../components/HistoryChartPopup';
+import NewsPopup from '../components/NewsPopup';
+import FundamentalsPopup from '../components/FundamentalsPopup';
 
 const Dashboard = () => {
+  // --- State Variables ---
+  // Portfolio Data
   const [portfolio, setPortfolio] = useState([]);
   const [isLoading, setIsLoading] = useState(true); // Start loading initially
   const [error, setError] = useState(null);
 
-  // --- State for Modal ---
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedStock, setSelectedStock] = useState(null); // Stock to show in modal
+  // History Modal State
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [selectedStockForHistory, setSelectedStockForHistory] = useState(null);
 
+  // News Modal State
+  const [isNewsModalOpen, setIsNewsModalOpen] = useState(false);
+  const [selectedStockForNews, setSelectedStockForNews] = useState(null); // Holds the stock name/symbol
+
+  // Fundamentals Modal State
+  const [isFundamentalsModalOpen, setIsFundamentalsModalOpen] = useState(false);
+  const [selectedStockForFundamentals, setSelectedStockForFundamentals] = useState(null); // Holds the stock object
+
+  // --- Fetch Portfolio Data Effect ---
   useEffect(() => {
-    // Define an async function inside useEffect to fetch the data
     const loadPortfolio = async () => {
       try {
         console.log('Dashboard: Setting loading true, clearing error.');
@@ -22,7 +35,7 @@ const Dashboard = () => {
         setError(null); // Clear previous errors
 
         console.log('Dashboard: Calling fetchPortfolio...');
-        const response = await fetchPortfolio(); // Actually call the API function
+        const response = await fetchPortfolio(); // Call the API function
 
         // Check if response and response.data exist and if it's an array
         if (response && Array.isArray(response.data)) {
@@ -62,22 +75,41 @@ const Dashboard = () => {
     };
   }, []); // Empty dependency array means this effect runs only once on mount
 
-  // --- Handlers for Modal ---
+  // --- Modal Handler Functions ---
   const handleHistoryClick = (stock) => {
     console.log("Dashboard: Opening history for:", stock);
-    setSelectedStock(stock); // Set the stock data for the modal
-    setIsModalOpen(true);   // Open the modal
+    setSelectedStockForHistory(stock); // Pass the whole stock object
+    setIsHistoryModalOpen(true);
+  };
+  const handleCloseHistoryModal = () => {
+    setIsHistoryModalOpen(false);
+    setSelectedStockForHistory(null);
   };
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);  // Close the modal
-    setSelectedStock(null); // Clear the selected stock
+  const handleNewsClick = (stock) => {
+    console.log("Dashboard: Opening news for:", stock.tradingsymbol);
+    setSelectedStockForNews(stock.tradingsymbol); // Pass the name/symbol
+    setIsNewsModalOpen(true);
+  };
+  const handleCloseNewsModal = () => {
+    setIsNewsModalOpen(false);
+    setSelectedStockForNews(null);
+  };
+
+  const handleFundamentalsClick = (stock) => {
+    console.log("Dashboard: Opening fundamentals for:", stock);
+    setSelectedStockForFundamentals(stock); // Pass the whole stock object
+    setIsFundamentalsModalOpen(true);
+  };
+  const handleCloseFundamentalsModal = () => {
+    setIsFundamentalsModalOpen(false);
+    setSelectedStockForFundamentals(null);
   };
 
 
-  // --- Conditional Rendering Logic ---
+  // --- Conditional Rendering Logic for Page Content ---
 
-  // 1. Show Loading State
+  // 1. Loading State
   if (isLoading) {
     return (
         <div>
@@ -87,7 +119,7 @@ const Dashboard = () => {
     );
   }
 
-  // 2. Show Error State (if loading is finished and error exists)
+  // 2. Error State
   if (error) {
     return (
         <div>
@@ -96,7 +128,8 @@ const Dashboard = () => {
             {/* Show reconnect button specifically for auth errors */}
             {error.includes("Authentication error") && (
                 <Link to="/connect">
-                    <button>Reconnect to Zerodha</button>
+                    {/* Apply styles to the button */}
+                    <button style={styles.button}>Reconnect to Zerodha</button>
                 </Link>
             )}
             {/* You could add a general retry button here too */}
@@ -104,7 +137,7 @@ const Dashboard = () => {
     );
   }
 
-  // 3. Show Empty Portfolio State (if loading finished, no error, but portfolio is empty)
+  // 3. Empty Portfolio State (if loading finished, no error, but portfolio is empty)
   if (!isLoading && !error && portfolio.length === 0) {
       return (
           <div>
@@ -115,17 +148,17 @@ const Dashboard = () => {
       );
   }
 
-  // 4. Render the table (if loading finished, no error, and portfolio has data)
+  // 4. Render Table and Modals if data loaded successfully
   return (
     <div>
       <h1>Dashboard</h1>
       <p>Here is your current portfolio overview:</p>
 
-      {/* Table only renders if all conditions are met */}
+      {/* Portfolio Table - Render only if not loading, no error, and portfolio has items */}
       <table style={styles.table}>
           <thead>
           <tr>
-              {/* Add all the headers */}
+              {/* Define all the table headers */}
               <th style={styles.th}>Symbol</th>
               <th style={styles.th}>Quantity</th>
               <th style={styles.th}>Avg. Price</th>
@@ -139,22 +172,26 @@ const Dashboard = () => {
           <tbody>
           {portfolio.map((stock) => (
               <tr key={stock.instrument_token} style={styles.tr}>
-                  {/* Fill in all the data cells */}
+                  {/* Define all the table data cells, with null checks */}
                   <td style={styles.td}>{stock.tradingsymbol} ({stock.exchange})</td>
-                  <td style={styles.td}>{stock.quantity ?? 'N/A'}</td> {/* Use nullish coalescing for safety */}
+                  <td style={styles.td}>{stock.quantity ?? 'N/A'}</td>
                   <td style={styles.td}>₹{stock.average_price?.toFixed(2) ?? 'N/A'}</td>
                   <td style={styles.td}>₹{stock.invested_amount?.toFixed(2) ?? 'N/A'}</td>
-                  <td style={styles.td}>{stock.last_price ? `₹${stock.last_price.toFixed(2)}` : 'N/A'}</td> {/* Check if last_price exists */}
+                  <td style={styles.td}>{stock.last_price != null ? `₹${stock.last_price.toFixed(2)}` : 'N/A'}</td>
                   <td style={styles.td}>₹{stock.current_value?.toFixed(2) ?? 'N/A'}</td>
                   <td style={{ ...styles.td, color: (stock.pnl ?? 0) >= 0 ? 'green' : 'red' }}>
-                      {stock.pnl != null ? `₹${stock.pnl.toFixed(2)}` : 'N/A' } {/* Check for null/undefined specifically */}
+                      {stock.pnl != null ? `₹${stock.pnl.toFixed(2)}` : 'N/A' }
                   </td>
                   <td style={styles.td}>
+                      {/* Action Buttons */}
                       <button style={styles.button} onClick={() => handleHistoryClick(stock)}>
                         History
                       </button>
-                      <button style={styles.button} onClick={() => alert(`News for ${stock.tradingsymbol} (coming soon!)`)}>
+                      <button style={styles.button} onClick={() => handleNewsClick(stock)}>
                         News
+                      </button>
+                      <button style={styles.button} onClick={() => handleFundamentalsClick(stock)}>
+                        Fundamentals
                       </button>
                   </td>
               </tr>
@@ -162,12 +199,22 @@ const Dashboard = () => {
           </tbody>
       </table>
 
-      {/* Render the Modal (outside the conditional rendering block for the table,
-          so it can still be controlled even if the table isn't visible temporarily) */}
+      {/* Render Modals (conditionally based on their isOpen state) */}
+      {/* These are rendered outside the table's conditional block */}
       <HistoryChartPopup
-        stock={selectedStock}
-        isOpen={isModalOpen}
-        onClose={handleCloseModal}
+        stock={selectedStockForHistory}
+        isOpen={isHistoryModalOpen}
+        onClose={handleCloseHistoryModal}
+      />
+      <NewsPopup
+        stockName={selectedStockForNews}
+        isOpen={isNewsModalOpen}
+        onClose={handleCloseNewsModal}
+      />
+      <FundamentalsPopup
+        stock={selectedStockForFundamentals} // Pass the selected stock object
+        isOpen={isFundamentalsModalOpen}
+        onClose={handleCloseFundamentalsModal}
       />
 
     </div>
@@ -175,49 +222,49 @@ const Dashboard = () => {
 };
 
 // --- Basic inline styles ---
+// Consider moving these to a separate CSS/CSS-in-JS solution for larger projects
 const styles = {
     table: {
         width: '100%',
         borderCollapse: 'collapse',
         marginTop: '20px',
         fontSize: '0.9em',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)', // Subtle shadow
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
     },
     th: {
         borderBottom: '2px solid #ddd',
-        padding: '12px 10px', // Slightly more padding
+        padding: '12px 10px',
         textAlign: 'left',
-        backgroundColor: '#f8f9fa', // Lighter grey
-        fontWeight: '600', // Bolder font
-        color: '#495057', // Darker text
-        whiteSpace: 'nowrap', // Prevent header text wrapping
+        backgroundColor: '#f8f9fa',
+        fontWeight: '600',
+        color: '#495057',
+        whiteSpace: 'nowrap',
     },
     tr: {
         borderBottom: '1px solid #eee',
-        '&:hover': { // This doesn't work with inline styles, needs CSS module or styled-components for hover
-             backgroundColor: '#f1f1f1'
-        }
+        // Hover styles require CSS Modules or similar
+        // '&:hover': { backgroundColor: '#f1f1f1' }
     },
     td: {
-        padding: '12px 10px', // Match header padding
+        padding: '12px 10px',
         textAlign: 'left',
-        verticalAlign: 'middle', // Align vertically center
+        verticalAlign: 'middle',
     },
     button: {
         marginLeft: '5px',
-        padding: '5px 10px', // Slightly larger buttons
+        marginRight: '5px', // Add some right margin too
+        marginBottom: '5px', // Add bottom margin for wrapping on small screens
+        padding: '5px 10px',
         fontSize: '0.85em',
         cursor: 'pointer',
         border: '1px solid #ced4da',
         borderRadius: '4px',
         backgroundColor: '#e9ecef',
         color: '#495057',
-        transition: 'background-color 0.2s ease', // Smooth transition
-        '&:hover': { // Hover effect needs CSS module/styled-components
-            backgroundColor: '#dee2e6'
-        }
+        transition: 'background-color 0.2s ease',
+        // Hover styles require CSS Modules or similar
+        // '&:hover': { backgroundColor: '#dee2e6' }
     }
 };
-
 
 export default Dashboard;

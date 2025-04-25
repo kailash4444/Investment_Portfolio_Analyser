@@ -2,9 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from kiteconnect import KiteConnect
 from .core.config import API_KEY # Import API_KEY directly
-from .routers import portfolio, auth,history # , history, news # Import auth
+from .routers import portfolio, auth,history,news,fundamentals     # , history, news # Import auth
 import logging
-# from .routers import portfolio, auth # , history, news # Import auth
 
 
 app = FastAPI(title='investment')
@@ -24,3 +23,5 @@ async def read_root():
 app.include_router(auth.router) # Add the auth router
 app.include_router(portfolio.router) # Prefix defined in the router file
 app.include_router(history.router) 
+app.include_router(news.router) 
+app.include_router(fundamentals.router) 

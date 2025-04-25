@@ -38,13 +38,16 @@ export const fetchStockHistory = (exchange, symbol, period = '1y') => {
 };
 
 
-// --- Stock News Function (Placeholder - Adjust URL/params as needed) ---
+// --- Stock News Function ---
+/**
+ * Fetches summarized news for a given stock name.
+ * @param {string} stockName - The name of the stock (e.g., 'Reliance Industries', 'Infosys')
+ * @returns {Promise<AxiosResponse<any>>} Promise resolving with API response (expects { summary: "..." })
+ */
 export const fetchStockNews = (stockName) => {
-    // Example: Assuming backend expects /api/v1/news/{stock_name}
-    const encodedStockName = encodeURIComponent(stockName);
-    // return apiClient.get(`/api/v1/news/${encodedStockName}`);
-    console.warn("fetchStockNews called - ensure backend endpoint exists and matches.");
-    return Promise.resolve({ data: `News functionality for ${stockName} not fully implemented yet.` }); // Placeholder response
+  const encodedStockName = encodeURIComponent(stockName);
+  console.log(`API Call: Fetching news for ${encodedStockName}`);
+  return apiClient.get(`/api/v1/news/${encodedStockName}`);
 };
 
 
@@ -78,5 +81,14 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+export const fetchStockFundamentals = (exchange, symbol) => {
+  const encodedExchange = encodeURIComponent(String(exchange));
+  const encodedSymbol = encodeURIComponent(String(symbol));
+  const path = `/api/v1/fundamentals/${encodedExchange}/${encodedSymbol}`;
+  console.log(`API Call: Fetching fundamentals for ${path}`);
+  return apiClient.get(path);
+};
+
 
 export default apiClient; // Optional default export
