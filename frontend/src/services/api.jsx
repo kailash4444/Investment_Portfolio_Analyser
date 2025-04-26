@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-    baseURL: 'http://localhost:8002', // Base URL for backend
+    baseURL: 'http://localhost:8004', // Base URL for backend
     headers: {
       'Content-Type': 'application/json',
   },
@@ -104,4 +104,15 @@ export const addManualHolding = (holdingData) => apiClient.post('/api/v1/manual_
  */
 export const deleteManualHolding = (holdingId) => apiClient.delete(`/api/v1/manual_portfolio/${holdingId}`);
 
+// --- Add Update Function ---
+/**
+ * Updates an existing manual USD holding.
+ * @param {number} holdingId - The ID of the holding to update.
+ * @param {object} updateData - Object with quantity, average_price_usd, exchange (optional)
+ */
+export const updateManualHolding = (holdingId, updateData) => {
+  console.log(`API Call: Updating holding ID ${holdingId} with data:`, updateData);
+  return apiClient.put(`/api/v1/manual_portfolio/${holdingId}`, updateData);
+};
+// --- End Update Function ---
 export default apiClient; // Optional default export

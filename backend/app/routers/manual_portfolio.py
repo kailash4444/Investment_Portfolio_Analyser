@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, status
 from typing import List
 from ..services import manual_portfolio_service
 # Import the detailed model now
-from ..models.portfolio_models import ManualHoldingCreate, ManualHoldingDisplay, ManualHoldingDetails
+from ..models.portfolio_models import *
 import logging
 
 router = APIRouter(
@@ -50,3 +50,13 @@ async def delete_holding_endpoint(holding_id: int):
      if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Manual holding with ID {holding_id} not found.")
      return
+
+@router.put("/{holding_id}",
+            response_model=ManualHoldingDisplay, # Return updated basic info
+            summary="Update Manual USD Holding")
+async def update_holding_endpoint(holding_id: int, holding_update: ManualHoldingUpdate):
+    """Updates the quantity and average price for a manual holding."""
+    updated_holding = await manual_portfolio_service.update_manual_holding(holding_id, holding_update)
+    if updated_holding is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Manual holding with ID {holding_id} not found.")
+    return updated_holding # Return the updated object

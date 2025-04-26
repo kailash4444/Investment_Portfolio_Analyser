@@ -32,3 +32,10 @@ class ManualHoldingDetails(ManualHoldingDisplay):
      last_price_usd: Optional[float] = None
      current_value_usd: Optional[float] = None
      pnl_usd: Optional[float] = None
+
+class ManualHoldingUpdate(BaseModel):
+    # Only allow updating quantity and average price
+    quantity: float = Field(..., gt=0, description="New number of shares")
+    average_price_usd: float = Field(..., gt=0, description="New average purchase price per share in USD")
+    # Optionally allow updating exchange too
+    exchange: Optional[str] = Field(None, description="Updated Exchange (e.g., NASDAQ, NYSE)")

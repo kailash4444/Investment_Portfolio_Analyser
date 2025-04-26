@@ -12,7 +12,7 @@ import {
 import HistoryChartPopup from '../components/HistoryChartPopup';
 import NewsPopup from '../components/NewsPopup';
 import FundamentalsPopup from '../components/FundamentalsPopup';
-import ManualHoldingForm from '../components/ManualHoldingForm'; // For adding manual holdings
+import ManualHoldingForm from '../components/ManualHoldingForm'; // For adding/editing manual holdings
 
 const Dashboard = () => {
   // --- State Variables ---
@@ -37,7 +37,9 @@ const Dashboard = () => {
   const [isFundamentalsModalOpen, setIsFundamentalsModalOpen] = useState(false);
   const [selectedStockForFundamentals, setSelectedStockForFundamentals] = useState(null); // Holds INR or USD stock object
 
-  const [isManualFormOpen, setIsManualFormOpen] = useState(false); // State for manual add form modal
+  // Manual Form/Edit State
+  const [isManualFormOpen, setIsManualFormOpen] = useState(false); // State for manual add/edit form modal
+  const [editingHolding, setEditingHolding] = useState(null); // Holds the *entire holding object* being edited, or null if adding
 
   // --- Data Fetching Logic ---
 
@@ -59,7 +61,6 @@ const Dashboard = () => {
       console.error("Dashboard: Error fetching INR portfolio:", err);
       const errorMsg = err.response?.data?.detail || err.message || "Failed to load INR portfolio.";
       setInrError(errorMsg);
-      // Specific handling for auth errors
       if (err.response && err.response.status === 401) {
         setInrError("Zerodha authentication error. Please reconnect.");
       }
@@ -75,7 +76,6 @@ const Dashboard = () => {
     setIsUsdLoading(true);
     setUsdError(null);
     try {
-      // This API call now returns holdings with calculated LTP/Value/PnL
       const response = await fetchManualPortfolio();
       if (response && Array.isArray(response.data)) {
         console.log('Dashboard: USD Portfolio data received:', response.data);
@@ -103,13 +103,9 @@ const Dashboard = () => {
 
   // --- Modal Open/Close Handlers ---
 
-  // Generic function to open a modal and set the selected stock
-  // `modalSetter` is the setIs...ModalOpen function
-  // `stockSetter` is the setSelectedStockFor... function
-  // `dataForModal` is the specific data the modal needs (stock object or symbol)
+  // Generic open modal function
   const openModal = (modalSetter, stockSetter, dataForModal, sourceDescription = "stock") => {
-    // Basic validation to ensure we have something to show
-    if (!dataForModal) {
+    if (!dataForModal && sourceDescription !== "ManualFormAdd") { // Allow opening add form with null data
         console.error(`Dashboard: Attempted to open modal (${sourceDescription}) with invalid data:`, dataForModal);
         alert(`Cannot open modal: Invalid ${sourceDescription} data provided.`);
         return;
@@ -120,74 +116,58 @@ const Dashboard = () => {
   };
 
   // Specific handlers using the generic function or custom logic
-  const handleHistoryClick = (stock) => { // Needs stock object
-    // Check if essential fields exist
-    if (stock && (stock.tradingsymbol) && (stock.exchange || stock.exchange === '')) {
-        // Ensure exchange is at least an empty string if not provided (for USD stocks primarily)
-        const stockWithExchange = { ...stock, exchange: stock.exchange || 'US' };
+  const handleHistoryClick = (stock) => {
+    if (stock && (stock.symbol || stock.tradingsymbol) && (stock.exchange || stock.exchange === '' || stock.exchange === null)) {
+        const stockWithExchange = { ...stock, exchange: stock.exchange || 'US' }; // Default exchange for API call
         openModal(setIsHistoryModalOpen, setSelectedStockForHistory, stockWithExchange, 'History');
-    } else {
-        console.error("Invalid stock object passed to handleHistoryClick:", stock);
-        alert("Cannot open history: Missing symbol or exchange.");
-    }
+    } else { console.error("Invalid stock passed to handleHistoryClick:", stock); alert("Cannot open history: Invalid stock data."); }
   };
-  const handleCloseHistoryModal = () => {
-    setIsHistoryModalOpen(false);
-    setSelectedStockForHistory(null);
-  };
+  const handleCloseHistoryModal = () => { setIsHistoryModalOpen(false); setSelectedStockForHistory(null); };
 
-  const handleNewsClick = (stock) => { // Needs symbol or tradingsymbol
-    const nameOrSymbol = stock.tradingsymbol; // Use tradingsymbol if available, else symbol
-    if (nameOrSymbol) {
-        openModal(setIsNewsModalOpen, setSelectedStockForNews, nameOrSymbol, 'News');
-    } else {
-        console.error("Invalid stock object passed to handleNewsClick (missing symbol/tradingsymbol):", stock);
-        alert("Cannot open news: Invalid stock data.");
-    }
+  const handleNewsClick = (stock) => {
+    const nameOrSymbol = stock.tradingsymbol || stock.symbol;
+    if (nameOrSymbol) { openModal(setIsNewsModalOpen, setSelectedStockForNews, nameOrSymbol, 'News'); }
+    else { console.error("Invalid stock passed to handleNewsClick:", stock); alert("Cannot open news: Invalid stock data."); }
   };
-  const handleCloseNewsModal = () => {
-    setIsNewsModalOpen(false);
-    setSelectedStockForNews(null);
-  };
+  const handleCloseNewsModal = () => { setIsNewsModalOpen(false); setSelectedStockForNews(null); };
 
-const handleFundamentalsClick = (stock) => {
-    console.log("Dashboard: Opening fundamentals for (raw stock object):", JSON.stringify(stock)); // Log the object
-    if (stock && (stock.symbol || stock.tradingsymbol)) { // Basic check
+  const handleFundamentalsClick = (stock) => {
+     if (stock && (stock.symbol || stock.tradingsymbol) && (stock.exchange || stock.exchange === '' || stock.exchange === null)) {
         const stockWithExchange = { ...stock, exchange: stock.exchange || 'US' };
-        console.log("Dashboard: Passing stockWithExchange to modal:", JSON.stringify(stockWithExchange));
         openModal(setIsFundamentalsModalOpen, setSelectedStockForFundamentals, stockWithExchange, 'Fundamentals');
-    } else {
-       console.error("Invalid stock object passed to handleFundamentalsClick:", stock);
-       alert("Cannot open fundamentals: Invalid stock data.");
-    }
- };
-  const handleCloseFundamentalsModal = () => {
-    setIsFundamentalsModalOpen(false);
-    setSelectedStockForFundamentals(null);
+     } else { console.error("Invalid stock passed to handleFundamentalsClick:", stock); alert("Cannot open fundamentals: Invalid stock data."); }
+  };
+  const handleCloseFundamentalsModal = () => { setIsFundamentalsModalOpen(false); setSelectedStockForFundamentals(null); };
+
+  // --- Manual Form Handlers (Add & Edit) ---
+  const handleOpenManualForm = (holdingToEdit = null) => { // Accepts optional holding for editing
+    // If holdingToEdit is provided, set it in state; otherwise, set null (for Add mode)
+    setEditingHolding(holdingToEdit);
+    // Use the generic openModal - stockSetter is setEditingHolding, data is holdingToEdit (can be null)
+    openModal(setIsManualFormOpen, setEditingHolding, holdingToEdit, holdingToEdit ? "ManualFormEdit" : "ManualFormAdd");
   };
 
-  // Manual Form Handlers
-  const handleOpenManualForm = () => setIsManualFormOpen(true);
-  const handleCloseManualForm = () => setIsManualFormOpen(false);
-  // This is called by the form component upon successful submission
-  const handleManualHoldingAdded = () => {
-    console.log("Dashboard: Manual holding added, refreshing USD portfolio.");
+  const handleCloseManualForm = () => {
+    setIsManualFormOpen(false);
+    setEditingHolding(null); // Always clear editing state when closing
+  };
+
+  // Callback for after Add or Edit is successful in the form
+  const handleManualHoldingAddedOrUpdated = () => {
+    console.log("Dashboard: Manual holding added or updated, refreshing USD portfolio.");
     loadUsdPortfolio(); // Refresh the USD portfolio list
   };
 
   // --- Delete Manual Holding Handler ---
   const handleDeleteManualHolding = async (holdingId, holdingSymbol) => {
-      // Use symbol in confirmation message
       if (window.confirm(`Are you sure you want to delete the manual holding for ${holdingSymbol} (ID: ${holdingId})? This action cannot be undone.`)) {
           try {
               console.log(`Dashboard: Deleting manual holding ID ${holdingId} (${holdingSymbol})`);
               await deleteManualHolding(holdingId);
               console.log(`Dashboard: Manual holding ID ${holdingId} deleted successfully.`);
-              // Refresh the list after deletion
-              loadUsdPortfolio();
+              loadUsdPortfolio(); // Refresh the list
           } catch (err) {
                console.error(`Dashboard: Error deleting manual holding ID ${holdingId} (${holdingSymbol}):`, err);
-               // Display error to user
                alert(`Failed to delete holding ${holdingSymbol}: ${err.response?.data?.detail || err.message}`);
           }
       }
@@ -205,17 +185,12 @@ const handleFundamentalsClick = (stock) => {
       return (
           <table style={styles.table}>
               <thead><tr>
-                  <th style={styles.th}>Symbol</th>
-                  <th style={styles.th}>Quantity</th>
-                  <th style={styles.th}>Avg. Price (₹)</th>
-                  <th style={styles.th}>Invested (₹)</th>
-                  <th style={styles.th}>LTP (₹)</th>
-                  <th style={styles.th}>Current (₹)</th>
-                  <th style={styles.th}>P&L (₹)</th>
-                  <th style={styles.th}>Actions</th>
+                  <th style={styles.th}>Symbol</th> <th style={styles.th}>Quantity</th> <th style={styles.th}>Avg. Price (₹)</th>
+                  <th style={styles.th}>Invested (₹)</th> <th style={styles.th}>LTP (₹)</th> <th style={styles.th}>Current (₹)</th>
+                  <th style={styles.th}>P&L (₹)</th> <th style={styles.th}>Actions</th>
               </tr></thead>
               <tbody>
-                  {inrPortfolio.map((stock) => ( // stock here is INR format
+                  {inrPortfolio.map((stock) => ( // stock is INR format
                       <tr key={stock.instrument_token} style={styles.tr}>
                           <td style={styles.td}>{stock.tradingsymbol} ({stock.exchange})</td>
                           <td style={styles.td}>{stock.quantity ?? 'N/A'}</td>
@@ -225,7 +200,7 @@ const handleFundamentalsClick = (stock) => {
                           <td style={styles.td}>₹{stock.current_value?.toFixed(2) ?? 'N/A'}</td>
                           <td style={{ ...styles.td, color: (stock.pnl ?? 0) >= 0 ? 'green' : 'red' }}>{stock.pnl != null ? `₹${stock.pnl.toFixed(2)}` : 'N/A' }</td>
                           <td style={styles.td}>
-                              {/* Pass the INR stock object to handlers */}
+                              {/* Pass INR stock object to handlers */}
                               <button style={styles.button} title={`View history for ${stock.tradingsymbol}`} onClick={() => handleHistoryClick(stock)}>History</button>
                               <button style={styles.button} title={`Get news for ${stock.tradingsymbol}`} onClick={() => handleNewsClick(stock)}>News</button>
                               <button style={styles.button} title={`View fundamentals for ${stock.tradingsymbol}`} onClick={() => handleFundamentalsClick(stock)}>Fundamentals</button>
@@ -242,31 +217,20 @@ const handleFundamentalsClick = (stock) => {
       if (usdError) return <p style={{ color: 'red' }}>USD Portfolio Error: {usdError}</p>;
       if (usdPortfolio.length === 0) return <p>Your manual (USD) portfolio is empty. Click '+ Add Manual Holding' to add one.</p>;
 
-      // USD Table JSX (displays calculated data fetched from backend)
+      // USD Table JSX
       return (
            <table style={styles.table}>
               <thead><tr>
-                  <th style={styles.th}>Symbol</th>
-                  <th style={styles.th}>Quantity</th>
-                  <th style={styles.th}>Avg. Price ($)</th>
-                  <th style={styles.th}>Invested ($)</th>
-                  <th style={styles.th}>LTP ($)</th>
-                  <th style={styles.th}>Current ($)</th>
-                  <th style={styles.th}>P&L ($)</th>
-                  <th style={styles.th}>Actions</th>
+                  <th style={styles.th}>Symbol</th> <th style={styles.th}>Quantity</th> <th style={styles.th}>Avg. Price ($)</th>
+                  <th style={styles.th}>Invested ($)</th> <th style={styles.th}>LTP ($)</th> <th style={styles.th}>Current ($)</th>
+                  <th style={styles.th}>P&L ($)</th> <th style={styles.th}>Actions</th>
               </tr></thead>
               <tbody>
-                  {usdPortfolio.map((stock) => { // stock here is ManualHoldingDetails format
-                      // Prepare a stock object compatible with modal handlers
-                      // Default exchange to 'US' if missing, for yfinance calls
-                      const actionStock = {
-                          ...stock,
-                          exchange: "" || 'US' // Use 'US' as default/placeholder
-                      };
-
+                  {usdPortfolio.map((stock) => { // stock is ManualHoldingDetails format
+                      const actionStock = { ...stock, exchange: stock.exchange || 'US' };
                       return (
-                          <tr key={stock.id} style={styles.tr}> {/* Use manual ID as key */}
-                              <td style={styles.td}>{stock.tradingsymbol} ({actionStock.exchange})</td>
+                          <tr key={stock.id} style={styles.tr}>
+                              <td style={styles.td}>{stock.tradingsymbol}</td>
                               <td style={styles.td}>{stock.quantity ?? 'N/A'}</td>
                               <td style={styles.td}>${stock.average_price_usd?.toFixed(2) ?? 'N/A'}</td>
                               <td style={styles.td}>${stock.invested_amount_usd?.toFixed(2) ?? 'N/A'}</td>
@@ -276,15 +240,22 @@ const handleFundamentalsClick = (stock) => {
                                   {stock.pnl_usd != null ? `$${stock.pnl_usd.toFixed(2)}` : 'N/A' }
                               </td>
                               <td style={styles.td}>
-                                  {/* Pass the manual stock object (actionStock) to handlers */}
-                                  <button style={styles.button} title={`View history for ${stock.tradingsymbol}`} onClick={() => handleHistoryClick(actionStock)}>History</button>
-                                  <button style={styles.button} title={`Get news for ${stock.tradingsymbol}`} onClick={() => handleNewsClick(actionStock)}>News</button>
-                                  <button style={styles.button} title={`View fundamentals for ${stock.tradingsymbol}`} onClick={() => handleFundamentalsClick(actionStock)}>Fundamentals</button>
-                                  {/* Pass symbol to delete handler for confirmation message */}
+                                  {/* Action Buttons for USD stocks */}
+                                  <button style={styles.button} title={`View history for ${stock.symbol}`} onClick={() => handleHistoryClick(actionStock)}>History</button>
+                                  <button style={styles.button} title={`Get news for ${stock.symbol}`} onClick={() => handleNewsClick(actionStock)}>News</button>
+                                  <button style={styles.button} title={`View fundamentals for ${stock.symbol}`} onClick={() => handleFundamentalsClick(actionStock)}>Fundamentals</button>
+                                  {/* Edit Button */}
+                                  <button
+                                      style={{...styles.button, backgroundColor: '#ffc107', color: '#212529'}} // Example yellow styling
+                                      title={`Edit ${stock.tradingsymbol} holding`}
+                                      onClick={() => handleOpenManualForm(stock)}> {/* Pass stock to open in edit mode */}
+                                          Edit
+                                  </button>
+                                  {/* Delete Button */}
                                   <button
                                       style={{...styles.button, backgroundColor: '#dc3545', color: 'white'}}
                                       title={`Delete ${stock.tradingsymbol} holding`}
-                                      onClick={() => handleDeleteManualHolding(stock.id, stock.tradingsymbol)}>
+                                      onClick={() => handleDeleteManualHolding(stock.id, stock.symbol)}>
                                           Delete
                                   </button>
                               </td>
@@ -297,12 +268,12 @@ const handleFundamentalsClick = (stock) => {
   };
 
 
-  // --- Main Render Function ---
+  // --- Main Render ---
   return (
-    <div style={{ paddingBottom: '50px' }}> {/* Add padding at bottom for floating elements */}
+    <div style={{ paddingBottom: '50px' }}>
       <h1>Dashboard</h1>
 
-      {/* --- Zerodha (INR) Portfolio Section --- */}
+      {/* INR Section */}
       <section style={styles.section}>
           <h2>Zerodha Portfolio (INR)</h2>
           {renderInrPortfolio()}
@@ -310,37 +281,38 @@ const handleFundamentalsClick = (stock) => {
 
       <hr style={styles.hr} />
 
-      {/* --- Manual (USD) Portfolio Section --- */}
+      {/* USD Section */}
       <section style={styles.section}>
           <div style={styles.sectionHeader}>
               <h2>Manual Portfolio (USD)</h2>
-              <button style={styles.button} onClick={handleOpenManualForm}>+ Add Manual Holding</button>
+              {/* Use handleOpenManualForm without args for Add mode */}
+              <button style={styles.button} onClick={() => handleOpenManualForm()}>+ Add Manual Holding</button>
           </div>
           {renderUsdPortfolio()}
       </section>
 
-
       {/* --- Render All Modals --- */}
-      {/* They are controlled by their respective isOpen state variables */}
       <HistoryChartPopup
-        stock={selectedStockForHistory} // Pass the selected stock object (INR or USD)
+        stock={selectedStockForHistory}
         isOpen={isHistoryModalOpen}
         onClose={handleCloseHistoryModal}
       />
       <NewsPopup
-        stockName={selectedStockForNews} // Pass the selected stock name/symbol
+        stockName={selectedStockForNews}
         isOpen={isNewsModalOpen}
         onClose={handleCloseNewsModal}
       />
       <FundamentalsPopup
-        stock={selectedStockForFundamentals} // Pass the selected stock object (INR or USD)
+        stock={selectedStockForFundamentals}
         isOpen={isFundamentalsModalOpen}
         onClose={handleCloseFundamentalsModal}
       />
+      {/* Pass editingHolding state to the form */}
       <ManualHoldingForm
         isOpen={isManualFormOpen}
         onClose={handleCloseManualForm}
-        onHoldingAdded={handleManualHoldingAdded} // Pass the refresh callback
+        onHoldingAdded={handleManualHoldingAddedOrUpdated} // Use renamed callback
+        holdingToEdit={editingHolding} // Pass the holding object (or null)
       />
 
     </div>
@@ -348,65 +320,15 @@ const handleFundamentalsClick = (stock) => {
 };
 
 // --- Basic inline styles ---
-// Consider moving these to a separate CSS/CSS-in-JS solution for larger projects
 const styles = {
-    section: {
-        marginBottom: '40px',
-    },
-    sectionHeader: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '10px',
-        paddingBottom: '5px',
-        borderBottom: '1px solid #eee',
-    },
-    hr: {
-        margin: '30px 0',
-        border: 0,
-        borderTop: '1px solid #eee'
-    },
-    table: {
-        width: '100%',
-        borderCollapse: 'collapse',
-        marginTop: '10px',
-        fontSize: '0.9em',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-    },
-    th: {
-        borderBottom: '2px solid #ddd',
-        padding: '12px 10px',
-        textAlign: 'left',
-        backgroundColor: '#f8f9fa',
-        fontWeight: '600',
-        color: '#495057',
-        whiteSpace: 'nowrap',
-    },
-    tr: {
-        borderBottom: '1px solid #eee',
-        // Hover styles require CSS Modules or similar
-        // '&:hover': { backgroundColor: '#f1f1f1' }
-    },
-    td: {
-        padding: '12px 10px',
-        textAlign: 'left',
-        verticalAlign: 'middle',
-    },
-    button: {
-        marginLeft: '5px',
-        marginRight: '5px', // Add some right margin too
-        marginBottom: '5px', // Add bottom margin for wrapping on small screens
-        padding: '5px 10px',
-        fontSize: '0.85em',
-        cursor: 'pointer',
-        border: '1px solid #ced4da',
-        borderRadius: '4px',
-        backgroundColor: '#e9ecef',
-        color: '#495057',
-        transition: 'background-color 0.2s ease, border-color 0.2s ease',
-        // Hover styles require CSS Modules or similar
-        // '&:hover': { backgroundColor: '#dee2e6', borderColor: '#adb5bd' }
-    }
+    section: { marginBottom: '40px', },
+    sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', paddingBottom: '5px', borderBottom: '1px solid #eee', },
+    hr: { margin: '30px 0', border: 0, borderTop: '1px solid #eee' },
+    table: { width: '100%', borderCollapse: 'collapse', marginTop: '10px', fontSize: '0.9em', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', },
+    th: { borderBottom: '2px solid #ddd', padding: '12px 10px', textAlign: 'left', backgroundColor: '#f8f9fa', fontWeight: '600', color: '#495057', whiteSpace: 'nowrap', },
+    tr: { borderBottom: '1px solid #eee', },
+    td: { padding: '12px 10px', textAlign: 'left', verticalAlign: 'middle', },
+    button: { marginLeft: '5px', marginRight: '5px', marginBottom: '5px', padding: '5px 10px', fontSize: '0.85em', cursor: 'pointer', border: '1px solid #ced4da', borderRadius: '4px', backgroundColor: '#e9ecef', color: '#495057', transition: 'background-color 0.2s ease, border-color 0.2s ease', }
 };
 
 export default Dashboard;

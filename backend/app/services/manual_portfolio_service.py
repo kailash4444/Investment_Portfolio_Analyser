@@ -7,7 +7,7 @@ from typing import List, Dict, Optional
 from .fundamentals_service import get_stock_fundamentals
 from .zerodha_services import get_current_price_yfinance
 # Import Pydantic models
-from ..models.portfolio_models import ManualHoldingCreate, ManualHoldingDisplay, ManualHoldingDetails
+from ..models.portfolio_models import *
 
 logging.basicConfig(level=logging.INFO)
 
@@ -113,3 +113,29 @@ async def get_manual_holding_details() -> List[ManualHoldingDetails]:
 
     logging.info("Finished processing manual holding details.")
     return processed_holdings
+
+
+async def update_manual_holding(holding_id: int, update_data: ManualHoldingUpdate) -> Optional[ManualHoldingDisplay]:
+    """Updates an existing manual holding."""
+    if holding_id in manual_holdings_db:
+        existing_holding = manual_holdings_db[holding_id]
+
+        # Update allowed fields from the update_data model
+        existing_holding.quantity = update_data.quantity
+        existing_holding.average_price_usd = update_data.average_price_usd
+        if update_data.exchange is not None: # Only update exchange if provided
+             existing_holding.exchange = update_data.exchange
+
+        # Recalculate invested amount
+        existing_holding.invested_amount_usd = round(
+            existing_holding.quantity * existing_holding.average_price_usd, 2
+        )
+
+        # Store the updated object back (optional for in-memory, crucial for DB)
+        manual_holdings_db[holding_id] = existing_holding
+
+        logging.info(f"Updated manual holding ID {holding_id}: {existing_holding.tradingsymbol}")
+        return existing_holding
+    else:
+        logging.warning(f"Attempted to update non-existent manual holding ID {holding_id}")
+        return None # Indicate not found
