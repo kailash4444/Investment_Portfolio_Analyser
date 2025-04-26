@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-    baseURL: 'http://localhost:8000', // Base URL for backend
+    baseURL: 'http://localhost:8002', // Base URL for backend
     headers: {
       'Content-Type': 'application/json',
   },
@@ -90,5 +90,18 @@ export const fetchStockFundamentals = (exchange, symbol) => {
   return apiClient.get(path);
 };
 
+export const fetchManualPortfolio = () => apiClient.get('/api/v1/manual_portfolio/');
+
+/**
+ * Adds a new manual USD holding.
+ * @param {object} holdingData - Object with symbol, quantity, average_price_usd, exchange (optional)
+ */
+export const addManualHolding = (holdingData) => apiClient.post('/api/v1/manual_portfolio/', holdingData);
+
+/**
+ * Deletes a manual USD holding by its ID.
+ * @param {number} holdingId - The ID of the holding to delete.
+ */
+export const deleteManualHolding = (holdingId) => apiClient.delete(`/api/v1/manual_portfolio/${holdingId}`);
 
 export default apiClient; // Optional default export

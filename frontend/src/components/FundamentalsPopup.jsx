@@ -36,25 +36,27 @@ const formatDateFromEpoch = (epochSeconds) => {
 
 
 const FundamentalsPopup = ({ stock, isOpen, onClose }) => {
+  console.log(`FundamentalsPopup: Render/Update - isOpen=${isOpen}, stock=`, JSON.stringify(stock)); // Log received props
+  // ... rest of the component ...
   const [fundamentalsData, setFundamentalsData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
   // --- Log prop changes for debugging ---
   useEffect(() => {
-    console.log(`FundamentalsPopup: isOpen changed to ${isOpen}, stock:`, stock);
+    console.log(`Console 1 FundamentalsPopup: isOpen changed to ${isOpen}, stock:`, stock);
   }, [isOpen, stock]);
   // ------------------------------------
 
 
   useEffect(() => {
     // Only fetch if modal is open AND stock object is provided
-    if (isOpen && stock && stock.exchange && stock.tradingsymbol) {
+    if (isOpen && stock && stock.exchange && (stock.tradingsymbol)) {
       const loadFundamentals = async () => {
         setIsLoading(true);
         setError(null);
         setFundamentalsData(null); // Clear previous data
-        console.log(`FundamentalsPopup: Fetching for ${stock.exchange}:${stock.tradingsymbol}`);
+        console.log(`fetch Stock Fundamental FundamentalsPopup: Fetching for ${stock.exchange}:${stock.tradingsymbol}`);
         try {
           const response = await fetchStockFundamentals(stock.exchange, stock.tradingsymbol);
           // Check the response structure carefully

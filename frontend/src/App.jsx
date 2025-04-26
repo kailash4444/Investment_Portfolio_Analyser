@@ -9,30 +9,55 @@ import LoginFailed from './views/LoginFailed'; // Create src/views/LoginFailed.j
 
 // Basic Layout (Optional but recommended)
 function Layout({ children }) {
-    const location = useLocation(); // Get location to show messages
+  const location = useLocation(); // Get location to show messages
 
-    // Check for query params from backend redirect (optional feedback)
-    const queryParams = new URLSearchParams(location.search);
-    const status = queryParams.get('status');
-    const reason = queryParams.get('reason');
+  // State to manage the visibility of the success message
+  const [showSuccessMessage, setShowSuccessMessage] = React.useState(false);
+  const [isConnected, setIsConnected] = React.useState(false); // State to track connection status
+
+  // Check for query params from backend redirect (optional feedback)
+  const queryParams = new URLSearchParams(location.search);
+  const status = queryParams.get('status');
+  const reason = queryParams.get('reason');
+
+  React.useEffect(() => {
+      if (status === 'connected') {
+          setShowSuccessMessage(true); // Show the success message
+          setIsConnected(true); // Mark as connected
+
+          // Hide the success message after 2 seconds
+          const timer = setTimeout(() => {
+              setShowSuccessMessage(false);
+          }, 2000);
+          return () => clearTimeout(timer); // Cleanup the timer on unmount
+      }
+  }, [status]);
 
   return (
-    <div>
-        {status === 'connected' && <p style={{color: 'green', border: '1px solid green', padding: '5px'}}>Successfully connected to Zerodha!</p>}
-        {reason && <p style={{color: 'red', border: '1px solid red', padding: '5px'}}>Connection Failed: {reason.replace(/_/g, ' ')}</p>}
+      <div>
+          {showSuccessMessage && (
+              <p style={{ color: 'green', border: '1px solid green', padding: '5px' }}>
+                  Successfully connected to Zerodha!
+              </p>
+          )}
+          {reason && (
+              <p style={{ color: 'red', border: '1px solid red', padding: '5px' }}>
+                  Connection Failed: {reason.replace(/_/g, ' ')}
+              </p>
+          )}
 
-      <nav style={{ background: '#eee', padding: '10px', marginBottom: '20px' }}>
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', gap: '15px' }}>
-          <li><Link to="/dashboard">Dashboard</Link></li>
-          <li><Link to="/connect">Connect/Settings</Link></li>
-          {/* Add other links */}
-        </ul>
-      </nav>
-      <hr />
-      <main style={{ padding: '20px' }}>{children}</main>
-    </div>
+          <nav style={{ background: '#eee', padding: '10px', marginBottom: '20px' }}>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', gap: '15px' }}>
+              {!isConnected && <li><Link to="/dashboard">Dashboard</Link></li>}
+              {!isConnected && <li><Link to="/connect">Connect/Settings</Link></li>}
+              </ul>
+          </nav>
+          <hr />
+          <main style={{ padding: '20px' }}>{children}</main>
+      </div>
   );
 }
+
 
 function App() {
   return (

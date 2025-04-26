@@ -1,220 +1,346 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+
 // Import API functions
-import { fetchPortfolio } from '../services/api';
+import {
+    fetchPortfolio,         // Fetches Zerodha INR portfolio
+    fetchManualPortfolio,   // Fetches Manual USD portfolio with calculated values
+    deleteManualHolding     // Deletes a manual holding
+} from '../services/api';
+
 // Import Modal components
 import HistoryChartPopup from '../components/HistoryChartPopup';
 import NewsPopup from '../components/NewsPopup';
 import FundamentalsPopup from '../components/FundamentalsPopup';
+import ManualHoldingForm from '../components/ManualHoldingForm'; // For adding manual holdings
 
 const Dashboard = () => {
   // --- State Variables ---
-  // Portfolio Data
-  const [portfolio, setPortfolio] = useState([]);
-  const [isLoading, setIsLoading] = useState(true); // Start loading initially
-  const [error, setError] = useState(null);
 
-  // History Modal State
+  // INR Portfolio (Zerodha) State
+  const [inrPortfolio, setInrPortfolio] = useState([]);
+  const [isInrLoading, setIsInrLoading] = useState(true);
+  const [inrError, setInrError] = useState(null);
+
+  // USD Portfolio (Manual) State
+  const [usdPortfolio, setUsdPortfolio] = useState([]);
+  const [isUsdLoading, setIsUsdLoading] = useState(true);
+  const [usdError, setUsdError] = useState(null);
+
+  // Modal States (Shared for INR and USD actions)
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-  const [selectedStockForHistory, setSelectedStockForHistory] = useState(null);
+  const [selectedStockForHistory, setSelectedStockForHistory] = useState(null); // Holds INR or USD stock object
 
-  // News Modal State
   const [isNewsModalOpen, setIsNewsModalOpen] = useState(false);
-  const [selectedStockForNews, setSelectedStockForNews] = useState(null); // Holds the stock name/symbol
+  const [selectedStockForNews, setSelectedStockForNews] = useState(null); // Holds INR or USD stock symbol/name
 
-  // Fundamentals Modal State
   const [isFundamentalsModalOpen, setIsFundamentalsModalOpen] = useState(false);
-  const [selectedStockForFundamentals, setSelectedStockForFundamentals] = useState(null); // Holds the stock object
+  const [selectedStockForFundamentals, setSelectedStockForFundamentals] = useState(null); // Holds INR or USD stock object
 
-  // --- Fetch Portfolio Data Effect ---
-  useEffect(() => {
-    const loadPortfolio = async () => {
-      try {
-        console.log('Dashboard: Setting loading true, clearing error.');
-        setIsLoading(true); // Set loading before fetch
-        setError(null); // Clear previous errors
+  const [isManualFormOpen, setIsManualFormOpen] = useState(false); // State for manual add form modal
 
-        console.log('Dashboard: Calling fetchPortfolio...');
-        const response = await fetchPortfolio(); // Call the API function
+  // --- Data Fetching Logic ---
 
-        // Check if response and response.data exist and if it's an array
-        if (response && Array.isArray(response.data)) {
-          console.log('Dashboard: Portfolio data received:', response.data);
-          setPortfolio(response.data); // Store the fetched array in state
-        } else {
-           console.warn('Dashboard: Received non-array or invalid data:', response);
-           setPortfolio([]); // Set empty array if data is not as expected
-           // Optionally set an error message here if needed
-           // setError("Received invalid portfolio data format from server.");
-        }
-
-      } catch (err) {
-        console.error("Dashboard: Error fetching portfolio:", err);
-        // Set a user-friendly error message based on the error received
-        if (err.response && err.response.status === 401) {
-          setError("Authentication error. Your Zerodha session might have expired. Please reconnect.");
-          setPortfolio([]); // Clear potentially stale data on auth error
-        } else if (err.message.includes('Network Error')) {
-             setError("Network Error: Could not connect to the backend server. Is it running?");
-        } else {
-          // Use error message from backend if available, otherwise generic message
-          setError(err.response?.data?.detail || err.message || "Failed to load portfolio data. Please try again later.");
-        }
-      } finally {
-        console.log('Dashboard: Setting loading false.');
-        setIsLoading(false); // Set loading to false after fetch attempt (success or fail)
+  // Fetch INR Portfolio (using useCallback for stable reference)
+  const loadInrPortfolio = useCallback(async () => {
+    console.log("Dashboard: Fetching INR portfolio...");
+    setIsInrLoading(true);
+    setInrError(null);
+    try {
+      const response = await fetchPortfolio();
+      if (response && Array.isArray(response.data)) {
+        console.log('Dashboard: INR Portfolio data received:', response.data);
+        setInrPortfolio(response.data);
+      } else {
+        console.warn('Dashboard: Received non-array or invalid INR data:', response);
+        setInrPortfolio([]);
       }
-    };
+    } catch (err) {
+      console.error("Dashboard: Error fetching INR portfolio:", err);
+      const errorMsg = err.response?.data?.detail || err.message || "Failed to load INR portfolio.";
+      setInrError(errorMsg);
+      // Specific handling for auth errors
+      if (err.response && err.response.status === 401) {
+        setInrError("Zerodha authentication error. Please reconnect.");
+      }
+      setInrPortfolio([]); // Clear data on error
+    } finally {
+      setIsInrLoading(false);
+    }
+  }, []); // Empty dependency array ensures it's created once
 
-    loadPortfolio(); // Execute the fetch function when component mounts
+  // Fetch USD Portfolio (using useCallback for stable reference)
+  const loadUsdPortfolio = useCallback(async () => {
+    console.log("Dashboard: Fetching USD portfolio...");
+    setIsUsdLoading(true);
+    setUsdError(null);
+    try {
+      // This API call now returns holdings with calculated LTP/Value/PnL
+      const response = await fetchManualPortfolio();
+      if (response && Array.isArray(response.data)) {
+        console.log('Dashboard: USD Portfolio data received:', response.data);
+        setUsdPortfolio(response.data);
+      } else {
+        console.warn('Dashboard: Received non-array or invalid USD data:', response);
+        setUsdPortfolio([]);
+      }
+    } catch (err) {
+      console.error("Dashboard: Error fetching USD portfolio:", err);
+      setUsdError(err.response?.data?.detail || err.message || "Failed to load manual USD portfolio.");
+      setUsdPortfolio([]); // Clear data on error
+    } finally {
+      setIsUsdLoading(false);
+    }
+  }, []); // Empty dependency array
 
-    // Cleanup function (optional) - runs when component unmounts
-    return () => {
-        console.log("Dashboard: Component unmounting");
-        // You could cancel ongoing requests here if needed
-    };
-  }, []); // Empty dependency array means this effect runs only once on mount
+  // Load both portfolios when the component mounts
+  useEffect(() => {
+    console.log("Dashboard: Component mounted. Initial load effect running.");
+    loadInrPortfolio();
+    loadUsdPortfolio();
+  }, [loadInrPortfolio, loadUsdPortfolio]); // Depend on the memoized fetch functions
 
-  // --- Modal Handler Functions ---
-  const handleHistoryClick = (stock) => {
-    console.log("Dashboard: Opening history for:", stock);
-    setSelectedStockForHistory(stock); // Pass the whole stock object
-    setIsHistoryModalOpen(true);
+
+  // --- Modal Open/Close Handlers ---
+
+  // Generic function to open a modal and set the selected stock
+  // `modalSetter` is the setIs...ModalOpen function
+  // `stockSetter` is the setSelectedStockFor... function
+  // `dataForModal` is the specific data the modal needs (stock object or symbol)
+  const openModal = (modalSetter, stockSetter, dataForModal, sourceDescription = "stock") => {
+    // Basic validation to ensure we have something to show
+    if (!dataForModal) {
+        console.error(`Dashboard: Attempted to open modal (${sourceDescription}) with invalid data:`, dataForModal);
+        alert(`Cannot open modal: Invalid ${sourceDescription} data provided.`);
+        return;
+    }
+    console.log(`Dashboard: Opening modal (${sourceDescription}) for:`, dataForModal);
+    stockSetter(dataForModal); // Set the data needed by the modal
+    modalSetter(true); // Open the modal
+  };
+
+  // Specific handlers using the generic function or custom logic
+  const handleHistoryClick = (stock) => { // Needs stock object
+    // Check if essential fields exist
+    if (stock && (stock.tradingsymbol) && (stock.exchange || stock.exchange === '')) {
+        // Ensure exchange is at least an empty string if not provided (for USD stocks primarily)
+        const stockWithExchange = { ...stock, exchange: stock.exchange || 'US' };
+        openModal(setIsHistoryModalOpen, setSelectedStockForHistory, stockWithExchange, 'History');
+    } else {
+        console.error("Invalid stock object passed to handleHistoryClick:", stock);
+        alert("Cannot open history: Missing symbol or exchange.");
+    }
   };
   const handleCloseHistoryModal = () => {
     setIsHistoryModalOpen(false);
     setSelectedStockForHistory(null);
   };
 
-  const handleNewsClick = (stock) => {
-    console.log("Dashboard: Opening news for:", stock.tradingsymbol);
-    setSelectedStockForNews(stock.tradingsymbol); // Pass the name/symbol
-    setIsNewsModalOpen(true);
+  const handleNewsClick = (stock) => { // Needs symbol or tradingsymbol
+    const nameOrSymbol = stock.tradingsymbol; // Use tradingsymbol if available, else symbol
+    if (nameOrSymbol) {
+        openModal(setIsNewsModalOpen, setSelectedStockForNews, nameOrSymbol, 'News');
+    } else {
+        console.error("Invalid stock object passed to handleNewsClick (missing symbol/tradingsymbol):", stock);
+        alert("Cannot open news: Invalid stock data.");
+    }
   };
   const handleCloseNewsModal = () => {
     setIsNewsModalOpen(false);
     setSelectedStockForNews(null);
   };
 
-  const handleFundamentalsClick = (stock) => {
-    console.log("Dashboard: Opening fundamentals for:", stock);
-    setSelectedStockForFundamentals(stock); // Pass the whole stock object
-    setIsFundamentalsModalOpen(true);
-  };
+const handleFundamentalsClick = (stock) => {
+    console.log("Dashboard: Opening fundamentals for (raw stock object):", JSON.stringify(stock)); // Log the object
+    if (stock && (stock.symbol || stock.tradingsymbol)) { // Basic check
+        const stockWithExchange = { ...stock, exchange: stock.exchange || 'US' };
+        console.log("Dashboard: Passing stockWithExchange to modal:", JSON.stringify(stockWithExchange));
+        openModal(setIsFundamentalsModalOpen, setSelectedStockForFundamentals, stockWithExchange, 'Fundamentals');
+    } else {
+       console.error("Invalid stock object passed to handleFundamentalsClick:", stock);
+       alert("Cannot open fundamentals: Invalid stock data.");
+    }
+ };
   const handleCloseFundamentalsModal = () => {
     setIsFundamentalsModalOpen(false);
     setSelectedStockForFundamentals(null);
   };
 
+  // Manual Form Handlers
+  const handleOpenManualForm = () => setIsManualFormOpen(true);
+  const handleCloseManualForm = () => setIsManualFormOpen(false);
+  // This is called by the form component upon successful submission
+  const handleManualHoldingAdded = () => {
+    console.log("Dashboard: Manual holding added, refreshing USD portfolio.");
+    loadUsdPortfolio(); // Refresh the USD portfolio list
+  };
 
-  // --- Conditional Rendering Logic for Page Content ---
+  // --- Delete Manual Holding Handler ---
+  const handleDeleteManualHolding = async (holdingId, holdingSymbol) => {
+      // Use symbol in confirmation message
+      if (window.confirm(`Are you sure you want to delete the manual holding for ${holdingSymbol} (ID: ${holdingId})? This action cannot be undone.`)) {
+          try {
+              console.log(`Dashboard: Deleting manual holding ID ${holdingId} (${holdingSymbol})`);
+              await deleteManualHolding(holdingId);
+              console.log(`Dashboard: Manual holding ID ${holdingId} deleted successfully.`);
+              // Refresh the list after deletion
+              loadUsdPortfolio();
+          } catch (err) {
+               console.error(`Dashboard: Error deleting manual holding ID ${holdingId} (${holdingSymbol}):`, err);
+               // Display error to user
+               alert(`Failed to delete holding ${holdingSymbol}: ${err.response?.data?.detail || err.message}`);
+          }
+      }
+  };
 
-  // 1. Loading State
-  if (isLoading) {
-    return (
-        <div>
-            <h1>Dashboard</h1>
-            <p>Loading your portfolio...</p>
-        </div>
-    );
-  }
 
-  // 2. Error State
-  if (error) {
-    return (
-        <div>
-            <h1>Dashboard</h1>
-            <p style={{ color: 'red' }}>Error: {error}</p>
-            {/* Show reconnect button specifically for auth errors */}
-            {error.includes("Authentication error") && (
-                <Link to="/connect">
-                    {/* Apply styles to the button */}
-                    <button style={styles.button}>Reconnect to Zerodha</button>
-                </Link>
-            )}
-            {/* You could add a general retry button here too */}
-        </div>
-    );
-  }
+  // --- Render Helper Functions for Tables ---
 
-  // 3. Empty Portfolio State (if loading finished, no error, but portfolio is empty)
-  if (!isLoading && !error && portfolio.length === 0) {
+  const renderInrPortfolio = () => {
+      if (isInrLoading) return <p>Loading Zerodha portfolio...</p>;
+      if (inrError) return <p style={{ color: 'red' }}>INR Portfolio Error: {inrError} {inrError.includes("Zerodha auth") && <Link to="/connect"><button style={styles.button}>Reconnect</button></Link>}</p>;
+      if (inrPortfolio.length === 0) return <p>Your Zerodha (INR) portfolio is empty.</p>;
+
+      // INR Table JSX
       return (
-          <div>
-              <h1>Dashboard</h1>
-              <p>Your portfolio is currently empty or data could not be loaded correctly.</p>
-              {/* Optionally add a refresh button or link */}
-          </div>
+          <table style={styles.table}>
+              <thead><tr>
+                  <th style={styles.th}>Symbol</th>
+                  <th style={styles.th}>Quantity</th>
+                  <th style={styles.th}>Avg. Price (₹)</th>
+                  <th style={styles.th}>Invested (₹)</th>
+                  <th style={styles.th}>LTP (₹)</th>
+                  <th style={styles.th}>Current (₹)</th>
+                  <th style={styles.th}>P&L (₹)</th>
+                  <th style={styles.th}>Actions</th>
+              </tr></thead>
+              <tbody>
+                  {inrPortfolio.map((stock) => ( // stock here is INR format
+                      <tr key={stock.instrument_token} style={styles.tr}>
+                          <td style={styles.td}>{stock.tradingsymbol} ({stock.exchange})</td>
+                          <td style={styles.td}>{stock.quantity ?? 'N/A'}</td>
+                          <td style={styles.td}>₹{stock.average_price?.toFixed(2) ?? 'N/A'}</td>
+                          <td style={styles.td}>₹{stock.invested_amount?.toFixed(2) ?? 'N/A'}</td>
+                          <td style={styles.td}>{stock.last_price != null ? `₹${stock.last_price.toFixed(2)}` : 'N/A'}</td>
+                          <td style={styles.td}>₹{stock.current_value?.toFixed(2) ?? 'N/A'}</td>
+                          <td style={{ ...styles.td, color: (stock.pnl ?? 0) >= 0 ? 'green' : 'red' }}>{stock.pnl != null ? `₹${stock.pnl.toFixed(2)}` : 'N/A' }</td>
+                          <td style={styles.td}>
+                              {/* Pass the INR stock object to handlers */}
+                              <button style={styles.button} title={`View history for ${stock.tradingsymbol}`} onClick={() => handleHistoryClick(stock)}>History</button>
+                              <button style={styles.button} title={`Get news for ${stock.tradingsymbol}`} onClick={() => handleNewsClick(stock)}>News</button>
+                              <button style={styles.button} title={`View fundamentals for ${stock.tradingsymbol}`} onClick={() => handleFundamentalsClick(stock)}>Fundamentals</button>
+                          </td>
+                      </tr>
+                  ))}
+              </tbody>
+          </table>
       );
-  }
+  };
 
-  // 4. Render Table and Modals if data loaded successfully
+  const renderUsdPortfolio = () => {
+      if (isUsdLoading) return <p>Loading manual USD portfolio...</p>;
+      if (usdError) return <p style={{ color: 'red' }}>USD Portfolio Error: {usdError}</p>;
+      if (usdPortfolio.length === 0) return <p>Your manual (USD) portfolio is empty. Click '+ Add Manual Holding' to add one.</p>;
+
+      // USD Table JSX (displays calculated data fetched from backend)
+      return (
+           <table style={styles.table}>
+              <thead><tr>
+                  <th style={styles.th}>Symbol</th>
+                  <th style={styles.th}>Quantity</th>
+                  <th style={styles.th}>Avg. Price ($)</th>
+                  <th style={styles.th}>Invested ($)</th>
+                  <th style={styles.th}>LTP ($)</th>
+                  <th style={styles.th}>Current ($)</th>
+                  <th style={styles.th}>P&L ($)</th>
+                  <th style={styles.th}>Actions</th>
+              </tr></thead>
+              <tbody>
+                  {usdPortfolio.map((stock) => { // stock here is ManualHoldingDetails format
+                      // Prepare a stock object compatible with modal handlers
+                      // Default exchange to 'US' if missing, for yfinance calls
+                      const actionStock = {
+                          ...stock,
+                          exchange: "" || 'US' // Use 'US' as default/placeholder
+                      };
+
+                      return (
+                          <tr key={stock.id} style={styles.tr}> {/* Use manual ID as key */}
+                              <td style={styles.td}>{stock.tradingsymbol} ({actionStock.exchange})</td>
+                              <td style={styles.td}>{stock.quantity ?? 'N/A'}</td>
+                              <td style={styles.td}>${stock.average_price_usd?.toFixed(2) ?? 'N/A'}</td>
+                              <td style={styles.td}>${stock.invested_amount_usd?.toFixed(2) ?? 'N/A'}</td>
+                              <td style={styles.td}>{stock.last_price_usd != null ? `$${stock.last_price_usd.toFixed(2)}` : 'N/A'}</td>
+                              <td style={styles.td}>{stock.current_value_usd != null ? `$${stock.current_value_usd.toFixed(2)}` : 'N/A'}</td>
+                              <td style={{ ...styles.td, color: (stock.pnl_usd ?? 0) >= 0 ? 'green' : 'red' }}>
+                                  {stock.pnl_usd != null ? `$${stock.pnl_usd.toFixed(2)}` : 'N/A' }
+                              </td>
+                              <td style={styles.td}>
+                                  {/* Pass the manual stock object (actionStock) to handlers */}
+                                  <button style={styles.button} title={`View history for ${stock.tradingsymbol}`} onClick={() => handleHistoryClick(actionStock)}>History</button>
+                                  <button style={styles.button} title={`Get news for ${stock.tradingsymbol}`} onClick={() => handleNewsClick(actionStock)}>News</button>
+                                  <button style={styles.button} title={`View fundamentals for ${stock.tradingsymbol}`} onClick={() => handleFundamentalsClick(actionStock)}>Fundamentals</button>
+                                  {/* Pass symbol to delete handler for confirmation message */}
+                                  <button
+                                      style={{...styles.button, backgroundColor: '#dc3545', color: 'white'}}
+                                      title={`Delete ${stock.tradingsymbol} holding`}
+                                      onClick={() => handleDeleteManualHolding(stock.id, stock.tradingsymbol)}>
+                                          Delete
+                                  </button>
+                              </td>
+                          </tr>
+                      );
+                  })}
+              </tbody>
+          </table>
+      );
+  };
+
+
+  // --- Main Render Function ---
   return (
-    <div>
+    <div style={{ paddingBottom: '50px' }}> {/* Add padding at bottom for floating elements */}
       <h1>Dashboard</h1>
-      <p>Here is your current portfolio overview:</p>
 
-      {/* Portfolio Table - Render only if not loading, no error, and portfolio has items */}
-      <table style={styles.table}>
-          <thead>
-          <tr>
-              {/* Define all the table headers */}
-              <th style={styles.th}>Symbol</th>
-              <th style={styles.th}>Quantity</th>
-              <th style={styles.th}>Avg. Price</th>
-              <th style={styles.th}>Invested</th>
-              <th style={styles.th}>LTP</th>
-              <th style={styles.th}>Current Value</th>
-              <th style={styles.th}>P&L</th>
-              <th style={styles.th}>Actions</th>
-          </tr>
-          </thead>
-          <tbody>
-          {portfolio.map((stock) => (
-              <tr key={stock.instrument_token} style={styles.tr}>
-                  {/* Define all the table data cells, with null checks */}
-                  <td style={styles.td}>{stock.tradingsymbol} ({stock.exchange})</td>
-                  <td style={styles.td}>{stock.quantity ?? 'N/A'}</td>
-                  <td style={styles.td}>₹{stock.average_price?.toFixed(2) ?? 'N/A'}</td>
-                  <td style={styles.td}>₹{stock.invested_amount?.toFixed(2) ?? 'N/A'}</td>
-                  <td style={styles.td}>{stock.last_price != null ? `₹${stock.last_price.toFixed(2)}` : 'N/A'}</td>
-                  <td style={styles.td}>₹{stock.current_value?.toFixed(2) ?? 'N/A'}</td>
-                  <td style={{ ...styles.td, color: (stock.pnl ?? 0) >= 0 ? 'green' : 'red' }}>
-                      {stock.pnl != null ? `₹${stock.pnl.toFixed(2)}` : 'N/A' }
-                  </td>
-                  <td style={styles.td}>
-                      {/* Action Buttons */}
-                      <button style={styles.button} onClick={() => handleHistoryClick(stock)}>
-                        History
-                      </button>
-                      <button style={styles.button} onClick={() => handleNewsClick(stock)}>
-                        News
-                      </button>
-                      <button style={styles.button} onClick={() => handleFundamentalsClick(stock)}>
-                        Fundamentals
-                      </button>
-                  </td>
-              </tr>
-          ))}
-          </tbody>
-      </table>
+      {/* --- Zerodha (INR) Portfolio Section --- */}
+      <section style={styles.section}>
+          <h2>Zerodha Portfolio (INR)</h2>
+          {renderInrPortfolio()}
+      </section>
 
-      {/* Render Modals (conditionally based on their isOpen state) */}
-      {/* These are rendered outside the table's conditional block */}
+      <hr style={styles.hr} />
+
+      {/* --- Manual (USD) Portfolio Section --- */}
+      <section style={styles.section}>
+          <div style={styles.sectionHeader}>
+              <h2>Manual Portfolio (USD)</h2>
+              <button style={styles.button} onClick={handleOpenManualForm}>+ Add Manual Holding</button>
+          </div>
+          {renderUsdPortfolio()}
+      </section>
+
+
+      {/* --- Render All Modals --- */}
+      {/* They are controlled by their respective isOpen state variables */}
       <HistoryChartPopup
-        stock={selectedStockForHistory}
+        stock={selectedStockForHistory} // Pass the selected stock object (INR or USD)
         isOpen={isHistoryModalOpen}
         onClose={handleCloseHistoryModal}
       />
       <NewsPopup
-        stockName={selectedStockForNews}
+        stockName={selectedStockForNews} // Pass the selected stock name/symbol
         isOpen={isNewsModalOpen}
         onClose={handleCloseNewsModal}
       />
       <FundamentalsPopup
-        stock={selectedStockForFundamentals} // Pass the selected stock object
+        stock={selectedStockForFundamentals} // Pass the selected stock object (INR or USD)
         isOpen={isFundamentalsModalOpen}
         onClose={handleCloseFundamentalsModal}
+      />
+      <ManualHoldingForm
+        isOpen={isManualFormOpen}
+        onClose={handleCloseManualForm}
+        onHoldingAdded={handleManualHoldingAdded} // Pass the refresh callback
       />
 
     </div>
@@ -224,10 +350,26 @@ const Dashboard = () => {
 // --- Basic inline styles ---
 // Consider moving these to a separate CSS/CSS-in-JS solution for larger projects
 const styles = {
+    section: {
+        marginBottom: '40px',
+    },
+    sectionHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '10px',
+        paddingBottom: '5px',
+        borderBottom: '1px solid #eee',
+    },
+    hr: {
+        margin: '30px 0',
+        border: 0,
+        borderTop: '1px solid #eee'
+    },
     table: {
         width: '100%',
         borderCollapse: 'collapse',
-        marginTop: '20px',
+        marginTop: '10px',
         fontSize: '0.9em',
         boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
     },
@@ -261,9 +403,9 @@ const styles = {
         borderRadius: '4px',
         backgroundColor: '#e9ecef',
         color: '#495057',
-        transition: 'background-color 0.2s ease',
+        transition: 'background-color 0.2s ease, border-color 0.2s ease',
         // Hover styles require CSS Modules or similar
-        // '&:hover': { backgroundColor: '#dee2e6' }
+        // '&:hover': { backgroundColor: '#dee2e6', borderColor: '#adb5bd' }
     }
 };
 
