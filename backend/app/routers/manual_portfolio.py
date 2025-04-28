@@ -1,9 +1,10 @@
 # backend/app/routers/manual_portfolio.py
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends # Import Depends
 from typing import List
+from sqlmodel import Session # Import Session
 from ..services import manual_portfolio_service
-# Import the detailed model now
-from ..models.portfolio_models import *
+from ..models.portfolio_models import ManualHolding, ManualHoldingCreate, ManualHoldingUpdate, ManualHoldingRead, ManualHoldingDetails # Adjust imports if needed
+from ..database import get_session # Import the session dependency
 import logging
 
 router = APIRouter(
@@ -12,51 +13,41 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-@router.post("/", # Keep POST as is
-             response_model=ManualHoldingDisplay,
-             status_code=status.HTTP_201_CREATED,
-             summary="Add Manual USD Holding")
-async def add_holding_endpoint(holding: ManualHoldingCreate):
-    # ... (no changes needed here) ...
-     try:
-        new_holding = await manual_portfolio_service.add_manual_holding(holding)
-        return new_holding
-     except Exception as e:
-        logging.exception(f"Error adding manual holding: {holding.symbol}")
-        raise HTTPException(status_code=500, detail="Failed to add manual holding.")
-
-
-# --- UPDATE THE GET ENDPOINT ---
-@router.get("/",
-            response_model=List[ManualHoldingDetails], # Update response model
-            summary="Get Manual USD Holdings with Details")
-async def get_holdings_endpoint():
-    """Retrieves all manually entered USD holdings with current price/value/pnl."""
+@router.post("/", response_model=ManualHoldingRead, status_code=status.HTTP_201_CREATED) # Return ManualHoldingRead
+async def add_holding_endpoint(holding: ManualHoldingCreate, db: Session = Depends(get_session)):
     try:
-        # Call the service function that does calculations
-        holdings = await manual_portfolio_service.get_manual_holding_details()
-        return holdings
-    except Exception as e:
-        logging.exception("Error getting manual holding details")
-        raise HTTPException(status_code=500, detail="Failed to retrieve manual holdings.")
-# --- END OF UPDATE ---
+        db_holding = manual_portfolio_service.add_manual_holding_db(db=db, holding_data=holding)
+        # Calculate invested amount for response model
+        read_model = ManualHoldingRead(
+            **db_holding.dict(),
+            invested_amount_usd=round(db_holding.quantity * db_holding.average_price_usd, 2)
+        )
+        return read_model
+    except Exception as e: # Handle specific DB errors if needed
+        logging.exception(f"Error adding manual holding: {holding.tradingsymbol}")
+        raise HTTPException(status_code=400, detail=f"Failed to add holding: {e}") # Maybe 400 Bad Request
 
-@router.delete("/{holding_id}", # Keep DELETE as is
-               status_code=status.HTTP_204_NO_CONTENT,
-               summary="Delete Manual USD Holding")
-async def delete_holding_endpoint(holding_id: int):
-    # ... (no changes needed here) ...
-     deleted = await manual_portfolio_service.delete_manual_holding(holding_id)
-     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Manual holding with ID {holding_id} not found.")
-     return
+@router.get("/", response_model=List[ManualHoldingDetails])
+async def get_holdings_endpoint(db: Session = Depends(get_session)): # Inject session
+    # Pass session to service layer
+    holdings = await manual_portfolio_service.get_manual_holding_details_db(db=db)
+    return holdings
 
-@router.put("/{holding_id}",
-            response_model=ManualHoldingDisplay, # Return updated basic info
-            summary="Update Manual USD Holding")
-async def update_holding_endpoint(holding_id: int, holding_update: ManualHoldingUpdate):
-    """Updates the quantity and average price for a manual holding."""
-    updated_holding = await manual_portfolio_service.update_manual_holding(holding_id, holding_update)
-    if updated_holding is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Manual holding with ID {holding_id} not found.")
-    return updated_holding # Return the updated object
+@router.put("/{holding_id}", response_model=ManualHoldingRead) # Return ManualHoldingRead
+async def update_holding_endpoint(holding_id: int, holding_update: ManualHoldingUpdate, db: Session = Depends(get_session)):
+    db_holding = manual_portfolio_service.update_manual_holding_db(db=db, holding_id=holding_id, update_data=holding_update)
+    if db_holding is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Holding with ID {holding_id} not found.")
+    # Calculate invested amount for response model
+    read_model = ManualHoldingRead(
+        **db_holding.dict(),
+        invested_amount_usd=round(db_holding.quantity * db_holding.average_price_usd, 2)
+    )
+    return read_model
+
+@router.delete("/{holding_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_holding_endpoint(holding_id: int, db: Session = Depends(get_session)):
+    deleted = manual_portfolio_service.delete_manual_holding_db(db=db, holding_id=holding_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Holding with ID {holding_id} not found.")
+    return # Return No Content

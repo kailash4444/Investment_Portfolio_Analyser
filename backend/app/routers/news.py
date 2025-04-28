@@ -28,7 +28,6 @@ async def get_stock_news_endpoint(stock_name: str):
              raise HTTPException(status_code=503, detail="News service unavailable.")
 
         # Return summary, even if it's an error message from the service
-        print(summary)
         return {"summary": summary}
 
     except Exception as e:

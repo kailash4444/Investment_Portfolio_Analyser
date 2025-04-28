@@ -1,41 +1,46 @@
-from pydantic import BaseModel, Field
 from typing import Optional
+from sqlmodel import Field, SQLModel # Import SQLModel components
 
-# --- Existing Zerodha Model (Example) ---
-class PortfolioItem(BaseModel):
-    tradingsymbol: str
-    exchange: str
-    quantity: int
-    average_price: float
-    invested_amount: float
-    last_price: Optional[float] = None
-    current_value: float
-    pnl: float
-    instrument_token: int
+# Keep PortfolioItem if needed for Zerodha data (not a DB table here)
+class PortfolioItem(SQLModel): # Use SQLModel if you might store it later
+    # ... fields ...
+    pass
 
-# --- Models for Manual USD Holdings ---
-class ManualHoldingBase(BaseModel):
-    tradingsymbol: str = Field(..., description="US Stock Ticker (e.g., AAPL, GOOGL)")
-    exchange: Optional[str] = Field(None, description="Exchange (e.g., NASDAQ, NYSE)") # Optional but helpful
-    quantity: float = Field(..., gt=0, description="Number of shares")
-    average_price_usd: float = Field(..., gt=0, description="Average purchase price per share in USD")
+# --- Manual Holding Model for Database ---
+# Define it as a table model
+class ManualHolding(SQLModel, table=True):
+    # Use Optional[int] for primary key, Field default=None for auto-increment
+    id: Optional[int] = Field(default=None, primary_key=True)
+    tradingsymbol: str = Field(index=True) # Add index for faster lookups
+    exchange: Optional[str] = Field(default=None)
+    quantity: float
+    average_price_usd: float
+    # Calculate invested amount on the fly or store redundantly if preferred
+    # For this example, we won't store invested_amount in the table
 
-class ManualHoldingCreate(ManualHoldingBase):
-    pass # No extra fields needed for creation
+    # Relationship definitions if linking to other tables would go here
 
-class ManualHoldingDisplay(ManualHoldingBase):
-    id: int # Add an ID for identification
-    invested_amount_usd: float
+# Pydantic models for API input/output (can reuse parts of SQLModel)
+class ManualHoldingCreate(SQLModel): # Inherit from SQLModel for auto-validation
+     tradingsymbol: str
+     exchange: Optional[str] = None
+     quantity: float
+     average_price_usd: float
 
-# Model for display including calculated current value/pnl
-class ManualHoldingDetails(ManualHoldingDisplay):
+class ManualHoldingUpdate(SQLModel):
+     quantity: float
+     average_price_usd: float
+     exchange: Optional[str] = None
+
+class ManualHoldingRead(SQLModel): # For basic reads without price/pnl
+     id: int
+     tradingsymbol: str
+     exchange: Optional[str]
+     quantity: float
+     average_price_usd: float
+     invested_amount_usd: float # Calculate this when reading
+
+class ManualHoldingDetails(ManualHoldingRead): # For detailed reads
      last_price_usd: Optional[float] = None
      current_value_usd: Optional[float] = None
      pnl_usd: Optional[float] = None
-
-class ManualHoldingUpdate(BaseModel):
-    # Only allow updating quantity and average price
-    quantity: float = Field(..., gt=0, description="New number of shares")
-    average_price_usd: float = Field(..., gt=0, description="New average purchase price per share in USD")
-    # Optionally allow updating exchange too
-    exchange: Optional[str] = Field(None, description="Updated Exchange (e.g., NASDAQ, NYSE)")

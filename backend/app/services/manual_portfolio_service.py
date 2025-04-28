@@ -1,141 +1,111 @@
 # backend/app/services/manual_portfolio_service.py
 import logging
 import asyncio
-from typing import List, Dict, Optional
-# Import the yfinance fetcher (adapt path if needed)
-# We need a function returning price, get_stock_fundamentals returns .info dict
+from typing import List, Optional
+from sqlmodel import Session, select # Import Session and select
 from .fundamentals_service import get_stock_fundamentals
-from .zerodha_services import get_current_price_yfinance
-# Import Pydantic models
-from ..models.portfolio_models import *
+# Import SQLModel versions and API models
+from ..models.portfolio_models import ManualHolding, ManualHoldingCreate, ManualHoldingUpdate, ManualHoldingRead, ManualHoldingDetails
 
 logging.basicConfig(level=logging.INFO)
 
-# --- In-memory Database (Keep as is) ---
-manual_holdings_db: Dict[int, ManualHoldingDisplay] = {}
-next_holding_id: int = 1
-# ---------------------------------------
+# --- Service functions now take a Session ---
 
-async def add_manual_holding(holding_data: ManualHoldingCreate) -> ManualHoldingDisplay:
-    # ... (Keep existing add function) ...
-    global next_holding_id
-    # print(next_holding_id)
-    # holding_id = len(manual_holdings_db) + 1 # Use the next available ID
-    holding_id = next_holding_id
-    invested_amount = holding_data.quantity * holding_data.average_price_usd
-    new_holding = ManualHoldingDisplay(
-        id=holding_id,
-        invested_amount_usd=round(invested_amount, 2),
-        **holding_data.dict()
-    )
-    manual_holdings_db[holding_id] = new_holding
-    next_holding_id += 1
-    logging.info(f"Added manual holding ID {holding_id}: {new_holding.tradingsymbol}")
-    return new_holding
+def add_manual_holding_db(db: Session, holding_data: ManualHoldingCreate) -> ManualHolding:
+    """Adds a new manual holding to the database."""
+    # Create DB model instance
+    db_holding = ManualHolding.from_orm(holding_data) # Create from Pydantic model
+    db.add(db_holding)
+    db.commit()
+    db.refresh(db_holding) # Get ID and other defaults back from DB
+    logging.info(f"Added manual holding ID {db_holding.id}: {db_holding.tradingsymbol}")
+    return db_holding
 
+def get_holding_by_id_db(db: Session, holding_id: int) -> Optional[ManualHolding]:
+     """Helper to get a single holding by ID."""
+     return db.get(ManualHolding, holding_id)
 
-async def delete_manual_holding(holding_id: int) -> bool:
-     # ... (Keep existing delete function) ...
-    if holding_id in manual_holdings_db:
-        del manual_holdings_db[holding_id]
+def update_manual_holding_db(db: Session, holding_id: int, update_data: ManualHoldingUpdate) -> Optional[ManualHolding]:
+    """Updates an existing manual holding in the database."""
+    db_holding = get_holding_by_id_db(db, holding_id)
+    if not db_holding:
+        logging.warning(f"Attempted to update non-existent manual holding ID {holding_id}")
+        return None
+
+    # Get data from update model
+    holding_data = update_data.dict(exclude_unset=True) # Don't include fields not sent
+    for key, value in holding_data.items():
+        setattr(db_holding, key, value) # Update fields
+
+    db.add(db_holding)
+    db.commit()
+    db.refresh(db_holding)
+    logging.info(f"Updated manual holding ID {holding_id}: {db_holding.tradingsymbol}")
+    return db_holding
+
+def delete_manual_holding_db(db: Session, holding_id: int) -> bool:
+    """Deletes a manual holding by ID from the database."""
+    db_holding = get_holding_by_id_db(db, holding_id)
+    if db_holding:
+        db.delete(db_holding)
+        db.commit()
         logging.info(f"Deleted manual holding ID {holding_id}")
         return True
     logging.warning(f"Attempted to delete non-existent manual holding ID {holding_id}")
     return False
 
-# --- NEW/UPDATED FUNCTION ---
-async def get_manual_holding_details() -> List[ManualHoldingDetails]:
-    """Retrieves manual holdings and fetches current price/value using yfinance."""
-    # Get the base holdings from storage
-    holdings = list(manual_holdings_db.values())
-    if not holdings:
+# --- Function to get details (still async because of price fetching) ---
+async def get_manual_holding_details_db(db: Session) -> List[ManualHoldingDetails]:
+    """Retrieves holdings from DB and fetches current price/value using yfinance."""
+    # Fetch all holdings from the database
+    statement = select(ManualHolding)
+    holdings_from_db = db.exec(statement).all() # This is synchronous
+
+    if not holdings_from_db:
         return []
 
-    logging.info(f"Processing details for {len(holdings)} manual holdings...")
+    logging.info(f"Processing details for {len(holdings_from_db)} manual holdings from DB...")
     processed_holdings: List[ManualHoldingDetails] = []
 
-    # --- Fetch current prices concurrently (using yfinance via fundamentals service) ---
-    price_tasks = []
-    for holding in holdings:
-        # yfinance uses ticker directly for US stocks. Exchange isn't strictly needed for price lookup usually.
-        # We use get_stock_fundamentals which fetches the .info dict
-        task = asyncio.create_task(get_current_price_yfinance(holding.tradingsymbol, holding.exchange or 'US'))
-        price_tasks.append(task)
-# get_current_price_yfinance
-    # Wait for all fetch tasks to complete, collecting results or exceptions
+    # Fetch prices concurrently (async part)
+    price_tasks = [
+        asyncio.create_task(get_stock_fundamentals(h.tradingsymbol, h.exchange or 'US'))
+        for h in holdings_from_db
+    ]
     results = await asyncio.gather(*price_tasks, return_exceptions=True)
-    
-    # --- Process results and calculate values ---
-    for i, holding in enumerate(holdings):
+
+    # Process results and combine with DB data
+    for i, db_holding in enumerate(holdings_from_db):
         result = results[i]
-        print(result)
-        current_price = None
-        current_value = None
-        pnl = None
+        current_price, current_value, pnl = None, None, None
 
-        if isinstance(result, Exception) or result is None:
-            logging.error(f"Failed to fetch fundamentals/price for manual holding {holding.tradingsymbol}: {result}")
-            # Keep current_price as None
-        else:
-            # Extract price from fundamentals .info dictionary
-            # Check common keys for price information
-            price_found = result
+        if not isinstance(result, Exception) and result:
+            price_found = result.get('currentPrice') or result.get('regularMarketPrice')
             if price_found is not None:
-                try:
-                    current_price = float(price_found)
-                    logging.debug(f"Price found for {holding.tradingsymbol}: {current_price}")
-                except (ValueError, TypeError) as price_err:
-                     logging.error(f"Invalid price format received for {holding.tradingsymbol}: {price_found} - Error: {price_err}")
-                     current_price = None # Treat as if price wasn't found
-            else:
-                 logging.warning(f"Could not find currentPrice or regularMarketPrice in yfinance info for {holding.tradingsymbol}")
+                try: current_price = float(price_found)
+                except Exception: pass # Ignore conversion error
 
-
-        # Calculate current value and P&L if price was found
         if current_price is not None:
             try:
-                current_value = holding.quantity * current_price
-                pnl = current_value - holding.invested_amount_usd
-            except TypeError as calc_err:
-                 logging.error(f"Calculation error for {holding.tradingsymbol} (Qty: {holding.quantity}, Price: {current_price}): {calc_err}")
-                 current_value = None
-                 pnl = None
+                current_value = db_holding.quantity * current_price
+                # Calculate invested amount on the fly for display model
+                invested_amount = db_holding.quantity * db_holding.average_price_usd
+                pnl = current_value - invested_amount
+            except Exception: current_value, pnl = None, None
 
-        # Create the detailed object including calculated values
+        # Create the detailed response model
         processed_holdings.append(
             ManualHoldingDetails(
-                **holding.dict(), # Get base data from ManualHoldingDisplay (id, symbol, qty, avg_price, invested)
-                last_price_usd=current_price, # Can be None
+                id=db_holding.id,
+                tradingsymbol=db_holding.tradingsymbol,
+                exchange=db_holding.exchange,
+                quantity=db_holding.quantity,
+                average_price_usd=db_holding.average_price_usd,
+                invested_amount_usd=round(db_holding.quantity * db_holding.average_price_usd, 2), # Recalculate for display
+                last_price_usd=current_price,
                 current_value_usd=round(current_value, 2) if current_value is not None else None,
                 pnl_usd=round(pnl, 2) if pnl is not None else None
             )
         )
-
-    logging.info("Finished processing manual holding details.")
+    logging.info("Finished processing manual holding details from DB.")
     return processed_holdings
-
-
-async def update_manual_holding(holding_id: int, update_data: ManualHoldingUpdate) -> Optional[ManualHoldingDisplay]:
-    """Updates an existing manual holding."""
-    if holding_id in manual_holdings_db:
-        existing_holding = manual_holdings_db[holding_id]
-
-        # Update allowed fields from the update_data model
-        existing_holding.quantity = update_data.quantity
-        existing_holding.average_price_usd = update_data.average_price_usd
-        if update_data.exchange is not None: # Only update exchange if provided
-             existing_holding.exchange = update_data.exchange
-
-        # Recalculate invested amount
-        existing_holding.invested_amount_usd = round(
-            existing_holding.quantity * existing_holding.average_price_usd, 2
-        )
-
-        # Store the updated object back (optional for in-memory, crucial for DB)
-        manual_holdings_db[holding_id] = existing_holding
-
-        logging.info(f"Updated manual holding ID {holding_id}: {existing_holding.tradingsymbol}")
-        return existing_holding
-    else:
-        logging.warning(f"Attempted to update non-existent manual holding ID {holding_id}")
-        return None # Indicate not found

@@ -4,6 +4,7 @@ from kiteconnect import KiteConnect
 from .core.config import API_KEY # Import API_KEY directly
 from .routers import portfolio, auth,history,news,fundamentals,manual_portfolio    # , history, news # Import auth
 import logging
+from .database import create_db_and_tables
 
 
 app = FastAPI(title='investment')
@@ -14,10 +15,12 @@ app.add_middleware(CORSMiddleware,allow_origins = origins,allow_credentials = Tr
 
 
 
+@app.on_event("startup")
+async def on_startup():
+    create_db_and_tables() 
 
 @app.get("/")
 async def read_root():
-    print("hello")
     return {"message": "Welcome to the Investment Portfolio API! Backend is running."}
 
 # # --- Include Routers ---
@@ -27,3 +30,5 @@ app.include_router(history.router)
 app.include_router(news.router) 
 app.include_router(fundamentals.router) 
 app.include_router(manual_portfolio.router) 
+
+
