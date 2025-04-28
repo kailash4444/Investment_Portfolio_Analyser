@@ -1,3 +1,6 @@
 .venv/
 
 backend/.env
+backend/manual_portfolio.db
+**/*.cpython-*.pyc
+__pycache__/

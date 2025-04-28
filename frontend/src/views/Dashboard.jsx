@@ -1,106 +1,131 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react'; // Import useRef
 import { Link } from 'react-router-dom';
 
 // Import API functions
 import {
-    fetchPortfolio,         // Fetches Zerodha INR portfolio
-    fetchManualPortfolio,   // Fetches Manual USD portfolio with calculated values
-    deleteManualHolding     // Deletes a manual holding
+    fetchPortfolio,
+    fetchManualPortfolio,
+    deleteManualHolding
 } from '../services/api';
 
 // Import Modal components
 import HistoryChartPopup from '../components/HistoryChartPopup';
 import NewsPopup from '../components/NewsPopup';
 import FundamentalsPopup from '../components/FundamentalsPopup';
-import ManualHoldingForm from '../components/ManualHoldingForm'; // For adding/editing manual holdings
+import ManualHoldingForm from '../components/ManualHoldingForm';
+
+const REFRESH_INTERVAL_MS = 5000; // 5 seconds
 
 const Dashboard = () => {
   // --- State Variables ---
-
-  // INR Portfolio (Zerodha) State
   const [inrPortfolio, setInrPortfolio] = useState([]);
   const [isInrLoading, setIsInrLoading] = useState(true);
   const [inrError, setInrError] = useState(null);
-
-  // USD Portfolio (Manual) State
   const [usdPortfolio, setUsdPortfolio] = useState([]);
-  const [isUsdLoading, setIsUsdLoading] = useState(true);
+  const [isUsdLoading, setIsUsdLoading] = useState(true); // Loading for initial USD fetch
+  const [isUsdRefreshing, setIsUsdRefreshing] = useState(false); // Separate state for background refresh indicator (optional)
   const [usdError, setUsdError] = useState(null);
-
-  // Modal States (Shared for INR and USD actions)
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-  const [selectedStockForHistory, setSelectedStockForHistory] = useState(null); // Holds INR or USD stock object
-
+  const [selectedStockForHistory, setSelectedStockForHistory] = useState(null);
   const [isNewsModalOpen, setIsNewsModalOpen] = useState(false);
-  const [selectedStockForNews, setSelectedStockForNews] = useState(null); // Holds INR or USD stock symbol/name
-
+  const [selectedStockForNews, setSelectedStockForNews] = useState(null);
   const [isFundamentalsModalOpen, setIsFundamentalsModalOpen] = useState(false);
-  const [selectedStockForFundamentals, setSelectedStockForFundamentals] = useState(null); // Holds INR or USD stock object
+  const [selectedStockForFundamentals, setSelectedStockForFundamentals] = useState(null);
+  const [isManualFormOpen, setIsManualFormOpen] = useState(false);
+  const [editingHolding, setEditingHolding] = useState(null);
 
-  // Manual Form/Edit State
-  const [isManualFormOpen, setIsManualFormOpen] = useState(false); // State for manual add/edit form modal
-  const [editingHolding, setEditingHolding] = useState(null); // Holds the *entire holding object* being edited, or null if adding
+  // --- Refs for managing intervals/timeouts and initial load ---
+  const usdRefreshTimeoutRef = useRef(null); // Stores the timeout ID
+  const isInitialUsdLoad = useRef(true); // Tracks if it's the first USD load
 
   // --- Data Fetching Logic ---
 
-  // Fetch INR Portfolio (using useCallback for stable reference)
+  // Fetch INR Portfolio (remains the same)
   const loadInrPortfolio = useCallback(async () => {
     console.log("Dashboard: Fetching INR portfolio...");
-    setIsInrLoading(true);
-    setInrError(null);
-    try {
-      const response = await fetchPortfolio();
-      if (response && Array.isArray(response.data)) {
-        console.log('Dashboard: INR Portfolio data received:', response.data);
-        setInrPortfolio(response.data);
-      } else {
-        console.warn('Dashboard: Received non-array or invalid INR data:', response);
-        setInrPortfolio([]);
-      }
-    } catch (err) {
-      console.error("Dashboard: Error fetching INR portfolio:", err);
-      const errorMsg = err.response?.data?.detail || err.message || "Failed to load INR portfolio.";
-      setInrError(errorMsg);
-      // Specific handling for auth errors
-      if (err.response && err.response.status === 401) {
-        setInrError("Zerodha authentication error. Please reconnect.");
-      }
-      setInrPortfolio([]); // Clear data on error
-    } finally {
-      setIsInrLoading(false);
-    }
-  }, []); // Empty dependency array ensures it's created once
+    setIsInrLoading(true); setInrError(null);
+    try { /* ... INR fetch logic ... */
+        const response = await fetchPortfolio(); if (response && Array.isArray(response.data)) { setInrPortfolio(response.data); } else { setInrPortfolio([]); }
+    } catch (err) { /* ... INR error handling ... */
+        console.error("Dashboard: Error fetching INR portfolio:", err); const errorMsg = err.response?.data?.detail || err.message || "Failed to load INR portfolio."; setInrError(errorMsg); if (err.response && err.response.status === 401) { setInrError("Zerodha authentication error. Please reconnect."); } setInrPortfolio([]);
+    } finally { setIsInrLoading(false); }
+  }, []);
 
-  // Fetch USD Portfolio (using useCallback for stable reference)
-  const loadUsdPortfolio = useCallback(async () => {
-    console.log("Dashboard: Fetching USD portfolio...");
-    setIsUsdLoading(true);
-    setUsdError(null);
+  // Fetch USD Portfolio (Modified for Auto-Refresh)
+  const loadUsdPortfolio = useCallback(async (isManualRefresh = false) => {
+    console.log("Dashboard: Fetching USD portfolio...", isManualRefresh ? "(Manual Refresh)" : isInitialUsdLoad.current ? "(Initial Load)" : "(Auto Refresh)");
+
+    // Show main loader only on initial load or if manually triggered
+    if (isInitialUsdLoad.current || isManualRefresh) {
+        setIsUsdLoading(true);
+    } else {
+        setIsUsdRefreshing(true); // Indicate background refresh (optional)
+    }
+    // Clear errors on fetch attempt? Maybe only if not a background refresh?
+    // Let's clear errors only on initial/manual load for now.
+    if (isInitialUsdLoad.current || isManualRefresh) {
+       setUsdError(null);
+    }
+
+    // Clear any existing scheduled timeout before starting a new fetch
+    if (usdRefreshTimeoutRef.current) {
+      clearTimeout(usdRefreshTimeoutRef.current);
+      usdRefreshTimeoutRef.current = null; // Clear the ref
+      console.log("Dashboard: Cleared pending USD refresh timeout.");
+    }
+
     try {
-      // This API call now returns holdings with calculated LTP/Value/PnL
       const response = await fetchManualPortfolio();
       if (response && Array.isArray(response.data)) {
         console.log('Dashboard: USD Portfolio data received:', response.data);
         setUsdPortfolio(response.data);
+         // Clear error specifically on successful fetch
+         if (!isInitialUsdLoad.current && !isManualRefresh) {
+             setUsdError(null); // Clear previous errors if background refresh succeeds
+         }
       } else {
         console.warn('Dashboard: Received non-array or invalid USD data:', response);
-        setUsdPortfolio([]);
+        setUsdPortfolio([]); // Set empty if data invalid
       }
     } catch (err) {
       console.error("Dashboard: Error fetching USD portfolio:", err);
+      // Set error state regardless of refresh type for visibility
       setUsdError(err.response?.data?.detail || err.message || "Failed to load manual USD portfolio.");
-      setUsdPortfolio([]); // Clear data on error
+      setUsdPortfolio([]); // Clear potentially stale data on error
     } finally {
-      setIsUsdLoading(false);
-    }
-  }, []); // Empty dependency array
+      // Turn off loading indicators
+      if (isInitialUsdLoad.current || isManualRefresh) {
+        setIsUsdLoading(false);
+        if (isInitialUsdLoad.current) {
+            isInitialUsdLoad.current = false; // Mark initial load done
+        }
+      } else {
+        setIsUsdRefreshing(false); // Turn off background refresh indicator
+      }
 
-  // Load both portfolios when the component mounts
+      // Schedule the *next* refresh using setTimeout
+      console.log(`Dashboard: Scheduling next USD refresh in ${REFRESH_INTERVAL_MS}ms`);
+      usdRefreshTimeoutRef.current = setTimeout(() => loadUsdPortfolio(false), REFRESH_INTERVAL_MS); // Call recursively, indicating it's not manual
+    }
+  }, []); // Keep dependencies empty as it schedules itself
+
+  // Load both portfolios on mount & Setup Cleanup
   useEffect(() => {
     console.log("Dashboard: Component mounted. Initial load effect running.");
     loadInrPortfolio();
-    loadUsdPortfolio();
-  }, [loadInrPortfolio, loadUsdPortfolio]); // Depend on the memoized fetch functions
+    loadUsdPortfolio(true); // Start the first load (mark as manual/initial)
+
+    // --- Cleanup Function ---
+    // This runs when the component unmounts
+    return () => {
+      console.log("Dashboard: Component unmounting. Clearing USD refresh timeout.");
+      if (usdRefreshTimeoutRef.current) {
+        clearTimeout(usdRefreshTimeoutRef.current); // Clear the scheduled timeout
+      }
+    };
+  }, [loadInrPortfolio, loadUsdPortfolio]); // Depend on the memoized functions
+
+
 
 
   // --- Modal Open/Close Handlers ---
